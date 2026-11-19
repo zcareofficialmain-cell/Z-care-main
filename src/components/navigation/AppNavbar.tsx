@@ -12,6 +12,7 @@ import {
   X,
   User,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { useState } from 'react';
 import Logo from '@/components/ui/Logo';
@@ -29,7 +30,9 @@ const navItems = [
 
 export default function AppNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { signOut, profile, user } = useAuth();
+  const { signOut, profile, user, adminRole } = useAuth();
+  // Shown only to administrators; the admin pages are authorised again by the database.
+  const items = adminRole ? [...navItems, { to: '/admin', label: 'Admin', icon: ShieldCheck }] : navItems;
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -48,7 +51,7 @@ export default function AppNavbar() {
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-1">
-            {navItems.map(item => (
+            {items.map(item => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -104,7 +107,7 @@ export default function AppNavbar() {
         {mobileMenuOpen && (
           <div className="md:hidden pb-4 border-t" style={{ borderColor: 'var(--color-border-light)' }}>
             <div className="flex flex-col gap-1 pt-3">
-              {navItems.map(item => (
+              {items.map(item => (
                 <NavLink
                   key={item.to}
                   to={item.to}

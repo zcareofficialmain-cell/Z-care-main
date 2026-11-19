@@ -28,7 +28,18 @@ interface AuthContextType {
   /** Starts "Continue with Google" (redirects to Google, then back to /auth/callback). */
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   refreshProfile: () => Promise<void>;
+  /**
+   * Admin role from the database (zc_my_admin_role). Only used to show/hide admin UI:
+   * every admin action is authorised again by the database.
+   */
+  adminRole: AdminRole | null;
+  /** True when an administrator has deactivated this account (database-enforced). */
+  accountSuspended: boolean;
+  /** True until the role/status check for the signed-in user has finished. */
+  accessLoading: boolean;
 }
+
+export type AdminRole = 'super_admin' | 'admin';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -88,6 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const configured = isSupabaseConfigured();
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
+  const [accountSuspended, setAccountSuspended] = useState(false);
+  const [accessLoading, setAccessLoading] = useState(true);
   const [recoveryMode, setRecoveryMode] = useState<boolean>(() => {
     if (!configured) return false;
     if (initialAuthRedirect.type === 'recovery' && !initialAuthRedirect.error) {
@@ -171,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, s) => {
+      (event, s) => {
         // A reset link signs the user in with a recovery session: keep them on the reset page.
         if (event === 'PASSWORD_RECOVERY') {
           writeRecoveryFlag(true);
@@ -184,7 +198,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(s);
         setUser(s?.user ?? null);
         if (s?.user) {
-          await fetchProfile(s.user.id);
+          // Supabase warns that awaiting another Supabase call inside this callback can
+          // deadlock sign-in, so the profile is loaded right after the callback returns.
+          const uid = s.user.id;
+          setTimeout(() => void fetchProfile(uid), 0);
         } else {
           setProfile(null);
         }
@@ -194,6 +211,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, [configured]);
+
+  // Admin role and account status for the signed-in Supabase user (not for demo/local accounts).
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    setAdminRole(null);
+    setAccountSuspended(false);
+    if (!configured || !userId || isDemoUser) {
+      setAccessLoading(false);
+      return;
+    }
+    setAccessLoading(true);
+    (async () => {
+      try {
+        const [role, status] = await Promise.all([
+          supabase.rpc('zc_my_admin_role'),
+          supabase.rpc('zc_my_account_status'),
+        ]);
+        if (cancelled) return;
+        // If the admin migration is not applied yet these calls fail: treat as a regular, active user.
+        setAdminRole(role.error ? null : role.data === 'super_admin' || role.data === 'admin' ? role.data : null);
+        setAccountSuspended(!status.error && status.data === 'suspended');
+      } finally {
+        if (!cancelled) setAccessLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, userId, isDemoUser]);
 
   const signInAsDemo = () => {
     // Start every demo from the full, fresh sample data set (demo edits live in this browser only).
@@ -367,6 +414,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         completePasswordRecovery,
         cancelPasswordRecovery,
         signInWithGoogle,
+        adminRole,
+        accountSuspended,
+        accessLoading,
       }}
     >
       {children}

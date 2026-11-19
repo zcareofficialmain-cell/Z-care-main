@@ -27,6 +27,8 @@ import SettingsPage from '@/pages/Settings/SettingsPage';
 
 // The AI assistant (and its on-device model runtime) is only loaded when opened.
 const AssistantPage = lazy(() => import('@/pages/Assistant/AssistantPage'));
+// Admin dashboard: loaded only for administrators. Access is enforced by the database.
+const AdminPage = lazy(() => import('@/pages/Admin/AdminPage'));
 const assistantFallback = (
   <div className="flex justify-center py-16" role="status" aria-label="Loading">
     <div className="spinner spinner-lg" />
@@ -82,6 +84,14 @@ export default function App() {
               <Route path="/reminders" element={<RemindersPage />} />
               <Route path="/records" element={<RecordsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route
+                path="/admin"
+                element={
+                  <Suspense fallback={assistantFallback}>
+                    <AdminPage />
+                  </Suspense>
+                }
+              />
               <Route
                 path="/assistant"
                 element={
