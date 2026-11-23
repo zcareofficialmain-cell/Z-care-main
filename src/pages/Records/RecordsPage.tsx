@@ -21,6 +21,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Check,
+  X,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -78,6 +79,9 @@ export default function RecordsPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   const [docForm, setDocForm] = useState<DocumentUploadFormData>({
     title: '',
@@ -133,11 +137,42 @@ export default function RecordsPage() {
     loadData();
   }, [user]);
 
-  // Handle file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
+  const MAX_FILE_SIZE_MB = 15;
 
+  const validateFile = (file: File): { valid: boolean; error?: string } => {
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isAllowedExt = ALLOWED_EXTENSIONS.includes(ext);
+    const isAllowedMime = file.type === 'application/pdf' || file.type.startsWith('image/');
+
+    if (!isAllowedExt && !isAllowedMime) {
+      return {
+        valid: false,
+        error: `Unsupported file format (${file.name}). Please choose a PDF, JPEG, or PNG file.`,
+      };
+    }
+
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      const sizeInMB = (file.size / (1024 * 1024)).toFixed(1);
+      return {
+        valid: false,
+        error: `File size (${sizeInMB} MB) exceeds the maximum allowed limit of ${MAX_FILE_SIZE_MB} MB.`,
+      };
+    }
+
+    return { valid: true };
+  };
+
+  const processSelectedFile = (file: File) => {
+    const check = validateFile(file);
+    if (!check.valid) {
+      setFileError(check.error || 'Invalid file');
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return false;
+    }
+
+    setFileError(null);
     setSelectedFile(file);
     const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
 
@@ -153,6 +188,52 @@ export default function RecordsPage() {
       title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
       document_type: docType,
     }));
+    return true;
+  };
+
+  // Handle file selection from input
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processSelectedFile(file);
+  };
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    setFileError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processSelectedFile(file);
+    }
   };
 
   // Start upload & automatic scan
@@ -332,6 +413,11 @@ export default function RecordsPage() {
     setScanResult(null);
     setCurrentUploadedDoc(null);
     setScanError(null);
+    setFileError(null);
+    setIsDragging(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
     setIsApplying(false);
     setDocForm({
       title: '',
@@ -717,20 +803,115 @@ export default function RecordsPage() {
         {/* Step 1: Upload Form */}
         {workflowState === 'form' && (
           <form onSubmit={handleUploadAndScan} className="space-y-4">
-            <div className="border-2 border-dashed border-[var(--color-border)] rounded-xl p-5 text-center bg-[var(--color-bg-page)]">
-              <Upload size={28} className="mx-auto mb-2 opacity-50 text-[var(--color-emerald-primary)]" />
-              <p className="text-xs font-semibold mb-1 text-[var(--color-text-primary)]">
-                Choose a PDF, JPEG, or PNG file
-              </p>
-              <p className="text-[11px] mb-3 text-[var(--color-text-muted)]">
-                Supported: Lab tests, prescriptions, doctor consultations, discharge summaries, and vaccine records.
-              </p>
+            {/* Drag & Drop / File Selection Area */}
+            <div
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${
+                isDragging
+                  ? 'border-[var(--color-emerald-primary)] bg-[var(--color-mint-lighter)] ring-2 ring-[var(--color-emerald-primary)]/20'
+                  : fileError
+                  ? 'border-[var(--color-danger)] bg-[var(--color-danger-light)]/20'
+                  : selectedFile
+                  ? 'border-[var(--color-emerald-primary)]/40 bg-[var(--color-mint-soft)]/40'
+                  : 'border-[var(--color-border)] bg-[var(--color-bg-page)] hover:border-[var(--color-emerald-primary)]/60'
+              }`}
+            >
               <input
+                ref={fileInputRef}
+                id="medical-report-file-input"
                 type="file"
                 accept=".pdf,image/png,image/jpeg"
                 onChange={handleFileChange}
-                className="text-xs"
+                className="sr-only"
+                aria-label="Upload medical report file"
               />
+
+              {!selectedFile ? (
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-[var(--color-mint-lighter)] flex items-center justify-center mb-2.5 text-[var(--color-emerald-primary)]">
+                    <Upload size={24} />
+                  </div>
+                  <p className="text-xs font-semibold mb-1 text-[var(--color-text-primary)]">
+                    Choose a PDF, JPEG, or PNG file
+                  </p>
+                  <p className="text-[11px] mb-3 text-[var(--color-text-muted)] max-w-sm">
+                    Supported: Lab tests, prescriptions, doctor consultations, discharge summaries, and vaccine records (Max 15 MB).
+                  </p>
+
+                  <label
+                    htmlFor="medical-report-file-input"
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className="btn btn-outline btn-sm inline-flex items-center gap-2 border-[var(--color-emerald-primary)] text-[var(--color-emerald-primary)] hover:bg-[var(--color-emerald-primary)] hover:text-white font-medium px-4 py-2 rounded-lg cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-emerald-primary)] focus:ring-offset-2"
+                  >
+                    <Upload size={14} />
+                    <span>Choose File</span>
+                  </label>
+
+                  <span className="text-[10px] text-[var(--color-text-light)] mt-2">
+                    or drag and drop your file here
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <div className="w-11 h-11 rounded-full bg-[var(--color-mint-lighter)] flex items-center justify-center mb-2 text-[var(--color-emerald-primary)]">
+                    <FileText size={22} />
+                  </div>
+
+                  <div className="flex items-center gap-2 max-w-full px-3 py-1.5 rounded-lg bg-[var(--color-white)] border border-[var(--color-border-light)] mb-3 shadow-xs">
+                    <span
+                      className="text-xs font-medium text-[var(--color-teal-deep)] truncate max-w-[260px] sm:max-w-[340px]"
+                      title={selectedFile.name}
+                    >
+                      {selectedFile.name}
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
+                      ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveFile}
+                      className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)] p-0.5 rounded transition-colors"
+                      title="Remove file"
+                      aria-label="Remove selected file"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <label
+                    htmlFor="medical-report-file-input"
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className="btn btn-ghost btn-sm text-xs text-[var(--color-emerald-primary)] hover:bg-[var(--color-mint-lighter)] inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw size={12} />
+                    Change File
+                  </label>
+                </div>
+              )}
+
+              {fileError && (
+                <div className="mt-2.5 p-2 rounded-lg text-xs bg-[var(--color-danger-light)] text-[var(--color-danger)] flex items-center justify-center gap-1.5">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{fileError}</span>
+                </div>
+              )}
             </div>
 
             <div className="input-group">
@@ -807,7 +988,7 @@ export default function RecordsPage() {
               </label>
             </div>
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-[var(--color-border-light)]">
+            <div className="flex justify-end gap-3 pt-3 border-t border-[var(--color-border-light)] sticky bottom-0 bg-[var(--color-white)] pb-1 z-10">
               <button
                 type="button"
                 onClick={handleCloseModal}

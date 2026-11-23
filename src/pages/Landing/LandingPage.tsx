@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   FolderHeart,
   Stethoscope,
@@ -244,8 +244,17 @@ export default function LandingPage() {
 
       {/* ================= FOOTER ================= */}
       <footer className="lp-footer">
-        <p>Trusted by patients and families. Made by ARASS Tech.</p>
-        <small>ZCare is a personal health record organiser. It does not provide medical advice, diagnosis, or treatment.</small>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.25rem', marginBottom: '1rem', fontSize: '0.8125rem' }}>
+          <Link to="/about" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>About Us</Link>
+          <Link to="/plans" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Pricing</Link>
+          <Link to="/privacy" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Privacy Policy</Link>
+          <Link to="/terms" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Terms & Conditions</Link>
+          <Link to="/refund-policy" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Refund Policy</Link>
+          <Link to="/contact" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Contact Us</Link>
+        </div>
+        <p>Trusted by patients and families across India. Registered at Thiruvananthapuram, Kerala.</p>
+        <small>ZCare is a personal health record organiser. It does not provide medical advice, diagnosis, or clinical treatment.</small>
+        <small style={{ marginTop: '0.5rem', display: 'block', opacity: 0.8 }}>© {new Date().getFullYear()} ZCare. All rights reserved.</small>
       </footer>
     </div>
   );

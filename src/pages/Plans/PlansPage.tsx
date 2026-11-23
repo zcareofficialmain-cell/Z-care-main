@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight, Star, Info, Clock } from 'lucide-react';
+import { Check, ArrowRight, Star, Info, Clock, ShieldCheck } from 'lucide-react';
 import Logo from '@/components/ui/Logo';
 import { PLANS, membershipState, planById, type MembershipState } from '@/lib/plans';
 import { useAuth } from '@/contexts/AuthContext';
-import { getMembership, requestSubscription, startFreeTrial } from '@/services/api';
+import { getMembership, startFreeTrial } from '@/services/api';
+import { startRazorpayCheckout } from '@/services/razorpay';
 import { useToast } from '@/components/ui/Toast';
 import type { PlanId } from '@/types';
 
@@ -15,7 +16,7 @@ export default function PlansPage() {
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('yearly');
   const [loading, setLoading] = useState(false);
   const [membership, setMembership] = useState<MembershipState | null>(null);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -45,16 +46,22 @@ export default function PlansPage() {
       if (selected.id === 'trial') {
         const sub = await startFreeTrial(user.id);
         showToast('success', `Your free trial is active until ${fmtDateTime(sub.period_end)}.`);
+        navigate('/dashboard');
       } else {
-        await requestSubscription(user.id, selected.id);
-        showToast(
-          'info',
-          `${selected.name} plan (${selected.priceLabel}) requested. Online payment is not available yet, so the plan is not active and nothing was charged.`,
-        );
+        const result = await startRazorpayCheckout(selected.id, user, profile);
+        if (result.success) {
+          showToast('success', `Payment successful! Your ${selected.name} membership is now active.`);
+          const updated = await getMembership(user.id);
+          setMembership(updated);
+          navigate('/dashboard');
+        }
       }
-      navigate('/dashboard');
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } catch (err: any) {
+      if (err?.message?.includes('cancelled')) {
+        showToast('info', 'Payment was cancelled.');
+      } else {
+        showToast('error', err instanceof Error ? err.message : 'Payment failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -151,11 +158,10 @@ export default function PlansPage() {
         </div>
 
         {selected.id !== 'trial' && (
-          <div className="flex items-start gap-2 p-3 rounded-lg mb-6 text-xs" style={{ backgroundColor: 'var(--color-info-light)', color: 'var(--color-info)' }}>
-            <Info size={14} className="shrink-0 mt-0.5" />
+          <div className="flex items-center gap-2 p-3 rounded-lg mb-6 text-xs bg-[var(--color-mint-lighter)] text-[var(--color-teal-deep)] border border-[var(--color-border-light)]">
+            <ShieldCheck size={16} className="shrink-0 text-[var(--color-emerald-primary)]" />
             <span>
-              Online payment is not available yet. Your {selected.name.toLowerCase()} plan request ({selected.priceLabel}) will be saved,
-              but the plan only becomes active after a verified payment. You will not be charged now.
+              Secure online payment powered by <strong>Razorpay</strong>. Supports UPI (Google Pay, PhonePe, Paytm, BHIM), Cards & Net Banking.
             </span>
           </div>
         )}
@@ -163,7 +169,7 @@ export default function PlansPage() {
         <button
           type="button"
           onClick={handleContinue}
-          className="btn btn-primary btn-lg w-full"
+          className="btn btn-primary btn-lg w-full font-medium shadow-sm"
           disabled={loading || (selected.id === 'trial' && (trialUnavailable || !membership))}
         >
           {loading ? (
@@ -172,16 +178,20 @@ export default function PlansPage() {
             trialUnavailable ? 'Free trial already used' : 'Start 1-day free trial'
           ) : (
             <>
-              Continue to payment · {selected.priceLabel}
+              Pay with Razorpay · {selected.priceLabel}
               <ArrowRight size={18} />
             </>
           )}
         </button>
 
-        <p className="text-xs text-center mt-4" style={{ color: 'var(--color-text-light)' }}>
-          <Link to="/dashboard" className="font-medium" style={{ color: 'var(--color-emerald-primary)' }}>Skip for now</Link>
+        <p className="text-xs text-center mt-4 text-[var(--color-text-light)]">
+          <Link to="/dashboard" className="font-medium hover:underline text-[var(--color-emerald-primary)]">
+            Skip for now
+          </Link>
           <br />
-          By continuing, you agree to ZCare&apos;s terms of service. Prices are in Indian Rupees (₹). Taxes may apply.
+          By continuing, you agree to ZCare&apos;s{' '}
+          <Link to="/terms" className="underline hover:text-[var(--color-teal-deep)]">Terms</Link> and{' '}
+          <Link to="/refund-policy" className="underline hover:text-[var(--color-teal-deep)]">Refund Policy</Link>. Prices in INR (₹).
         </p>
       </div>
     </div>

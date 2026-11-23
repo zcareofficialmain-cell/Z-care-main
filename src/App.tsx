@@ -16,6 +16,11 @@ import ResetPasswordPage from '@/pages/Auth/ResetPasswordPage';
 import AuthCallbackPage from '@/pages/Auth/AuthCallbackPage';
 import ProfilePage from '@/pages/Profile/ProfilePage';
 import PlansPage from '@/pages/Plans/PlansPage';
+import PrivacyPolicyPage from '@/pages/Legal/PrivacyPolicyPage';
+import TermsPage from '@/pages/Legal/TermsPage';
+import RefundPolicyPage from '@/pages/Legal/RefundPolicyPage';
+import ContactUsPage from '@/pages/Legal/ContactUsPage';
+import AboutUsPage from '@/pages/Legal/AboutUsPage';
 
 import DashboardPage from '@/pages/Dashboard/DashboardPage';
 import MedicationsPage from '@/pages/Medications/MedicationsPage';
@@ -59,6 +64,13 @@ export default function App() {
           <Routes>
             {/* Public Landing */}
             <Route path="/" element={<LandingPage />} />
+
+            {/* Public Legal & Compliance Pages */}
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/refund-policy" element={<RefundPolicyPage />} />
+            <Route path="/contact" element={<ContactUsPage />} />
+            <Route path="/about" element={<AboutUsPage />} />
 
             {/* Auth Routes */}
             <Route element={<AuthLayout />}>

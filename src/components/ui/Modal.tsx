@@ -46,18 +46,18 @@ export default function Modal({
   return (
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div
-        className="modal-content"
+        className="modal-content flex flex-col"
         onClick={e => e.stopPropagation()}
         style={{ maxWidth: width }}
       >
-        <div className="modal-header">
+        <div className="modal-header shrink-0">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="btn-icon btn-ghost" aria-label="Close">
             <X size={18} />
           </button>
         </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-footer">{footer}</div>}
+        <div className="modal-body overflow-y-auto">{children}</div>
+        {footer && <div className="modal-footer shrink-0">{footer}</div>}
       </div>
     </div>
   );
