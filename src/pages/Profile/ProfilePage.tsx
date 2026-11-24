@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { User, ArrowRight } from 'lucide-react';
 import Logo from '@/components/ui/Logo';
+import LoadingScreen from '@/components/ui/LoadingScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { upsertProfile } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
@@ -11,7 +12,7 @@ const genderOptions = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 const languageOptions = ['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali', 'Marathi', 'Gujarati', 'Urdu'];
 
 export default function ProfilePage() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, loading: authLoading, onboardingLoading } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -24,8 +25,26 @@ export default function ProfilePage() {
     height: profile?.height?.toString() || '',
     weight: profile?.weight?.toString() || '',
   });
+
+  useEffect(() => {
+    if (profile) {
+      setForm(prev => ({
+        full_name: prev.full_name || profile.full_name || '',
+        date_of_birth: prev.date_of_birth || profile.date_of_birth || '',
+        gender: prev.gender || profile.gender || '',
+        language: prev.language || profile.language || 'English',
+        height: prev.height || (profile.height ? profile.height.toString() : ''),
+        weight: prev.weight || (profile.weight ? profile.weight.toString() : ''),
+      }));
+    }
+  }, [profile]);
+
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof ProfileFormData, string>>>({});
+
+  // Route protection
+  if (authLoading || onboardingLoading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/signin" replace />;
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof ProfileFormData, string>> = {};

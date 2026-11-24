@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight, Star, Info, Clock, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { Check, ArrowRight, Star, Clock, ShieldCheck } from 'lucide-react';
 import Logo from '@/components/ui/Logo';
+import LoadingScreen from '@/components/ui/LoadingScreen';
 import { PLANS, membershipState, planById, type MembershipState } from '@/lib/plans';
 import { useAuth } from '@/contexts/AuthContext';
 import { getMembership, startFreeTrial } from '@/services/api';
@@ -16,7 +17,7 @@ export default function PlansPage() {
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('yearly');
   const [loading, setLoading] = useState(false);
   const [membership, setMembership] = useState<MembershipState | null>(null);
-  const { user, profile } = useAuth();
+  const { user, profile, hasAccess, refreshMembership, loading: authLoading, onboardingLoading, isDemoUser, adminRole } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -36,6 +37,16 @@ export default function PlansPage() {
     };
   }, [user]);
 
+  // Route protection
+  if (authLoading || onboardingLoading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/signin" replace />;
+
+  // Must have completed profile before choosing plans
+  const isExempt = isDemoUser || adminRole !== null;
+  if (!isExempt && (!profile?.full_name || !profile.full_name.trim())) {
+    return <Navigate to="/profile" replace />;
+  }
+
   const selected = planById(selectedPlan)!;
   const trialUnavailable = !!membership && (membership.trialUsed || membership.current?.status === 'active');
 
@@ -45,11 +56,13 @@ export default function PlansPage() {
     try {
       if (selected.id === 'trial') {
         const sub = await startFreeTrial(user.id);
+        await refreshMembership();
         showToast('success', `Your free trial is active until ${fmtDateTime(sub.period_end)}.`);
         navigate('/dashboard');
       } else {
         const result = await startRazorpayCheckout(selected.id, user, profile);
         if (result.success) {
+          await refreshMembership();
           showToast('success', `Payment successful! Your ${selected.name} membership is now active.`);
           const updated = await getMembership(user.id);
           setMembership(updated);
@@ -184,15 +197,20 @@ export default function PlansPage() {
           )}
         </button>
 
-        <p className="text-xs text-center mt-4 text-[var(--color-text-light)]">
-          <Link to="/dashboard" className="font-medium hover:underline text-[var(--color-emerald-primary)]">
-            Skip for now
-          </Link>
-          <br />
-          By continuing, you agree to ZCare&apos;s{' '}
-          <Link to="/terms" className="underline hover:text-[var(--color-teal-deep)]">Terms</Link> and{' '}
-          <Link to="/refund-policy" className="underline hover:text-[var(--color-teal-deep)]">Refund Policy</Link>. Prices in INR (₹).
-        </p>
+        <div className="text-xs text-center mt-4 text-[var(--color-text-light)]">
+          {hasAccess && (
+            <div className="mb-2">
+              <Link to="/dashboard" className="font-medium hover:underline text-[var(--color-emerald-primary)]">
+                ← Back to Dashboard
+              </Link>
+            </div>
+          )}
+          <p>
+            By continuing, you agree to ZCare&apos;s{' '}
+            <Link to="/terms" className="underline hover:text-[var(--color-teal-deep)]">Terms</Link> and{' '}
+            <Link to="/refund-policy" className="underline hover:text-[var(--color-teal-deep)]">Refund Policy</Link>. Prices in INR (₹).
+          </p>
+        </div>
       </div>
     </div>
   );

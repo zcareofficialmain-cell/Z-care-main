@@ -5,29 +5,32 @@ import Logo from '@/components/ui/Logo';
 import LoadingScreen from '@/components/ui/LoadingScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase, initialAuthRedirect } from '@/lib/supabase';
+import { getMembership } from '@/services/api';
+import { membershipState } from '@/lib/plans';
 
 /**
- * Return point for "Continue with Google". Supabase has already turned the
- * redirect into a session (detectSessionInUrl). This page only decides where
- * the user goes next:
- *   - existing ZCare profile -> dashboard (profile is left untouched)
- *   - no profile yet         -> the existing onboarding page (/profile)
+ * Return point for email verification and "Continue with Google".
+ * Supabase has already turned the redirect into a session (detectSessionInUrl).
+ * This page decides where the user goes next based on onboarding completion:
+ *   - incomplete profile      -> /profile
+ *   - no active trial or plan -> /plans
+ *   - fully onboarded         -> /dashboard
  */
 export default function AuthCallbackPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshProfile, refreshMembership } = useAuth();
   const navigate = useNavigate();
   const [problem, setProblem] = useState<string | null>(() =>
     initialAuthRedirect.error || initialAuthRedirect.errorCode
       ? initialAuthRedirect.error === 'access_denied'
-        ? 'Google sign-in was cancelled.'
-        : 'Google sign-in could not be completed. Please try again.'
+        ? 'Sign-in was cancelled.'
+        : 'Sign-in could not be completed. Please try again.'
       : null,
   );
 
   useEffect(() => {
     if (loading || problem) return;
     if (!user) {
-      setProblem('Google sign-in could not be completed. Please try again.');
+      setProblem('Sign-in or email verification could not be completed. Please try again.');
       return;
     }
     let cancelled = false;
@@ -39,18 +42,42 @@ export default function AuthCallbackPage() {
         setProblem('Your sign-in session could not be verified. Please try again.');
         return;
       }
-      const { data, error } = await supabase.from('profiles').select('id, full_name').eq('user_id', auth.user.id).maybeSingle();
+
+      const [profileRes, membershipRes] = await Promise.all([
+        supabase.from('profiles').select('id, full_name').eq('user_id', auth.user.id).maybeSingle(),
+        getMembership(auth.user.id).catch(() => membershipState([])),
+      ]);
       if (cancelled) return;
-      if (error) {
+
+      if (profileRes.error) {
         setProblem('Signed in, but your profile could not be loaded. Please try again.');
         return;
       }
-      navigate(data?.full_name ? '/dashboard' : '/profile', { replace: true });
+
+      // Sync state into AuthContext
+      await Promise.all([refreshProfile(), refreshMembership()]);
+      if (cancelled) return;
+
+      // Onboarding Step 1: Profile completion
+      if (!profileRes.data?.full_name || !profileRes.data.full_name.trim()) {
+        navigate('/profile', { replace: true });
+        return;
+      }
+
+      // Onboarding Step 2: Plan selection (24-hr trial or paid subscription)
+      if (!membershipRes.hasAccess) {
+        navigate('/plans', { replace: true });
+        return;
+      }
+
+      // Onboarding Complete
+      navigate('/dashboard', { replace: true });
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [loading, user, problem, navigate]);
+  }, [loading, user, problem, navigate, refreshProfile, refreshMembership]);
 
   if (!problem) return <LoadingScreen />;
 

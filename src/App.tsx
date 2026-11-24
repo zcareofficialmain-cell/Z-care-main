@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ToastProvider } from '@/components/ui/Toast';
+import { initialAuthRedirect } from '@/lib/supabase';
 
 import AuthLayout from '@/layouts/AuthLayout';
 import LoadingScreen from '@/components/ui/LoadingScreen';
@@ -41,16 +42,20 @@ const assistantFallback = (
 );
 
 /**
- * While a password-reset (recovery) session is active, every route except the
- * Reset Password page redirects there, so a reset link can never open the app.
+ * Handles special incoming auth redirects:
+ * - Password recovery sessions redirect to /reset-password.
+ * - Email verification signups that land on root redirect to /auth/callback for onboarding.
  */
-function RecoveryGate({ children }: { children: ReactNode }) {
+function AuthRedirectGate({ children }: { children: ReactNode }) {
   const { recoveryMode, loading } = useAuth();
   const { pathname } = useLocation();
   if (recoveryMode && pathname !== '/reset-password') {
     // Wait until Supabase has read the tokens from the link before changing the URL.
     if (loading) return <LoadingScreen />;
     return <Navigate to="/reset-password" replace />;
+  }
+  if (initialAuthRedirect.type === 'signup' && pathname === '/') {
+    return <Navigate to="/auth/callback" replace />;
   }
   return <>{children}</>;
 }
@@ -60,7 +65,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-          <RecoveryGate>
+          <AuthRedirectGate>
           <Routes>
             {/* Public Landing */}
             <Route path="/" element={<LandingPage />} />
@@ -117,7 +122,7 @@ export default function App() {
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          </RecoveryGate>
+          </AuthRedirectGate>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

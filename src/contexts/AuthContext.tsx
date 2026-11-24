@@ -2,12 +2,17 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, initialAuthRedirect } from '@/lib/supabase';
 import type { Profile } from '@/types';
+import { getMembership } from '@/services/api';
+import { membershipState, type MembershipState } from '@/lib/plans';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  membership: MembershipState | null;
+  hasAccess: boolean;
   loading: boolean;
+  onboardingLoading: boolean;
   configured: boolean;
   isDemoUser: boolean;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -28,6 +33,7 @@ interface AuthContextType {
   /** Starts "Continue with Google" (redirects to Google, then back to /auth/callback). */
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   refreshProfile: () => Promise<void>;
+  refreshMembership: () => Promise<void>;
   /**
    * Admin role from the database (zc_my_admin_role). Only used to show/hide admin UI:
    * every admin action is authorised again by the database.
@@ -96,7 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [membership, setMembership] = useState<MembershipState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const configured = isSupabaseConfigured();
   const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
@@ -111,16 +119,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return readRecoveryFlag();
   });
 
-  const fetchProfile = async (userId: string) => {
+  const hasAccess = isDemoUser || Boolean(membership?.hasAccess);
+
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
     // The demo account is not a Supabase user: its profile is local sample data.
     if (!configured || userId === DEMO_USER.id) {
       const stored = localStorage.getItem(`drec_profile_${userId}`);
       if (stored) {
-        setProfile(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setProfile(parsed);
+        return parsed;
       } else if (userId === DEMO_USER.id) {
         setProfile(DEMO_PROFILE);
+        return DEMO_PROFILE;
       }
-      return;
+      return null;
     }
     try {
       const { data, error } = await supabase
@@ -133,8 +146,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error fetching profile:', error);
       }
       setProfile(data);
+      return data;
     } catch (err) {
       console.error('Profile fetch failed:', err);
+      return null;
+    }
+  };
+
+  const fetchMembership = async (userId: string): Promise<MembershipState> => {
+    try {
+      const state = await getMembership(userId);
+      setMembership(state);
+      return state;
+    } catch (err) {
+      console.error('Membership fetch failed:', err);
+      const fallback = membershipState([]);
+      setMembership(fallback);
+      return fallback;
+    }
+  };
+
+  const loadUserData = async (userId: string) => {
+    setOnboardingLoading(true);
+    try {
+      await Promise.all([fetchProfile(userId), fetchMembership(userId)]);
+    } finally {
+      setOnboardingLoading(false);
     }
   };
 
@@ -144,14 +181,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshMembership = async () => {
+    if (user) {
+      await fetchMembership(user.id);
+    }
+  };
+
   useEffect(() => {
     // Check local session
     const localSession = localStorage.getItem('drec_demo_session');
     if (localSession === 'true') {
       setUser(DEMO_USER);
       setIsDemoUser(true);
-      fetchProfile(DEMO_USER.id);
+      setProfile(DEMO_PROFILE);
+      getMembership(DEMO_USER.id).then(m => setMembership(m));
       setLoading(false);
+      setOnboardingLoading(false);
       return;
     }
 
@@ -169,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: localUserEmail,
         } as User;
         setUser(localUser);
-        fetchProfile(localUserId);
+        loadUserData(localUserId);
       }
       setLoading(false);
       return;
@@ -179,7 +224,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        fetchProfile(s.user.id);
+        loadUserData(s.user.id);
+      } else {
+        setOnboardingLoading(false);
       }
       setLoading(false);
     });
@@ -194,16 +241,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_OUT') {
           writeRecoveryFlag(false);
           setRecoveryMode(false);
+          setProfile(null);
+          setMembership(null);
+          setOnboardingLoading(false);
         }
         setSession(s);
         setUser(s?.user ?? null);
         if (s?.user) {
           // Supabase warns that awaiting another Supabase call inside this callback can
-          // deadlock sign-in, so the profile is loaded right after the callback returns.
+          // deadlock sign-in, so the user data is loaded right after the callback returns.
           const uid = s.user.id;
-          setTimeout(() => void fetchProfile(uid), 0);
+          setTimeout(() => void loadUserData(uid), 0);
         } else {
           setProfile(null);
+          setMembership(null);
+          setOnboardingLoading(false);
         }
         setLoading(false);
       }
@@ -254,6 +306,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(DEMO_USER);
     setProfile(DEMO_PROFILE);
     setIsDemoUser(true);
+    getMembership(DEMO_USER.id).then(m => setMembership(m));
+    setOnboardingLoading(false);
     localStorage.setItem('drec_demo_session', 'true');
     localStorage.setItem(`drec_profile_${DEMO_USER.id}`, JSON.stringify(DEMO_PROFILE));
   };
@@ -276,7 +330,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(localUser);
       return { error: null };
     }
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
     return { error: error ? friendlyAuthError(error.message) : null };
   };
 
@@ -318,6 +378,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsDemoUser(false);
     setUser(null);
     setProfile(null);
+    setMembership(null);
+    setOnboardingLoading(false);
     if (configured) {
       await supabase.auth.signOut();
     }
@@ -400,7 +462,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         session,
         profile,
+        membership,
+        hasAccess,
         loading,
+        onboardingLoading,
         configured,
         isDemoUser,
         signUp,
@@ -410,6 +475,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         updatePassword,
         refreshProfile,
+        refreshMembership,
         recoveryMode,
         completePasswordRecovery,
         cancelPasswordRecovery,

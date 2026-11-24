@@ -21,10 +21,10 @@ export default function SignInPage() {
     setLoading(true);
 
     const { error: signInError } = await signIn(email, password);
-    setLoading(false);
 
     if (signInError) {
       setError(signInError.message);
+      setLoading(false);
     } else {
       navigate('/dashboard');
     }
