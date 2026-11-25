@@ -28,11 +28,18 @@ const navItems = [
   { to: '/assistant', label: 'Assistant', icon: Sparkles },
 ];
 
+const adminNavItems = [
+  { to: '/admin', label: 'Admin Dashboard', icon: ShieldCheck },
+];
+
 export default function AppNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { signOut, profile, user, adminRole } = useAuth();
-  // Shown only to administrators; the admin pages are authorised again by the database.
-  const items = adminRole ? [...navItems, { to: '/admin', label: 'Admin', icon: ShieldCheck }] : navItems;
+  // Administrators see only admin navigation; patient links are hidden.
+  // Admin routes are authorised again by the database.
+  const isAdmin = adminRole !== null;
+  const items = isAdmin ? adminNavItems : navItems;
+  const homePath = isAdmin ? '/admin' : '/dashboard';
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -45,7 +52,7 @@ export default function AppNavbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-14">
           {/* Logo */}
-          <NavLink to="/dashboard" className="flex items-center no-underline">
+          <NavLink to={homePath} className="flex items-center no-underline">
             <Logo size="sm" />
           </NavLink>
 

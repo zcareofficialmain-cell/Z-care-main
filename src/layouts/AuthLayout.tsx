@@ -3,13 +3,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import LoadingScreen from '@/components/ui/LoadingScreen';
 
 export default function AuthLayout() {
-  const { user, profile, hasAccess, loading, onboardingLoading, isDemoUser, adminRole } = useAuth();
+  const { user, profile, hasAccess, loading, onboardingLoading, accessLoading, isDemoUser, adminRole } = useAuth();
 
-  if (loading || onboardingLoading) return <LoadingScreen />;
+  if (loading || onboardingLoading || accessLoading) return <LoadingScreen />;
 
   if (user) {
-    const isExempt = isDemoUser || adminRole !== null;
-    if (!isExempt) {
+    if (!isDemoUser && adminRole !== null) {
+      return <Navigate to="/admin" replace />;
+    }
+    if (!isDemoUser) {
       if (!profile?.full_name || !profile.full_name.trim()) {
         return <Navigate to="/profile" replace />;
       }

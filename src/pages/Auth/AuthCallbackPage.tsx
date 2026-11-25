@@ -43,9 +43,10 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const [profileRes, membershipRes] = await Promise.all([
+      const [profileRes, membershipRes, roleRes] = await Promise.all([
         supabase.from('profiles').select('id, full_name').eq('user_id', auth.user.id).maybeSingle(),
         getMembership(auth.user.id).catch(() => membershipState([])),
+        supabase.rpc('zc_my_admin_role'),
       ]);
       if (cancelled) return;
 
@@ -57,6 +58,12 @@ export default function AuthCallbackPage() {
       // Sync state into AuthContext
       await Promise.all([refreshProfile(), refreshMembership()]);
       if (cancelled) return;
+
+      // Administrators go straight to the Admin Dashboard
+      if (!roleRes.error && (roleRes.data === 'super_admin' || roleRes.data === 'admin')) {
+        navigate('/admin', { replace: true });
+        return;
+      }
 
       // Onboarding Step 1: Profile completion
       if (!profileRes.data?.full_name || !profileRes.data.full_name.trim()) {

@@ -1,13 +1,14 @@
-import { Outlet, Navigate } from 'react-router-dom';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import AppNavbar from '@/components/navigation/AppNavbar';
 import LoadingScreen from '@/components/ui/LoadingScreen';
 
 export default function AppLayout() {
-  const { user, profile, hasAccess, loading, onboardingLoading, accountSuspended, isDemoUser, adminRole, signOut } = useAuth();
+  const { user, profile, hasAccess, loading, onboardingLoading, accessLoading, accountSuspended, isDemoUser, adminRole, signOut } = useAuth();
+  const { pathname } = useLocation();
 
-  // Wait until all authentication and onboarding information is completely loaded.
-  if (loading || onboardingLoading) return <LoadingScreen />;
+  // Wait until all authentication, role, and onboarding information is completely loaded.
+  if (loading || onboardingLoading || accessLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/signin" replace />;
   if (accountSuspended) {
     // Data access is already blocked by the database; this explains it to the user.
@@ -24,15 +25,18 @@ export default function AppLayout() {
     );
   }
 
-  // Demo users and administrators are exempt from patient onboarding subscription checks.
-  const isExempt = isDemoUser || adminRole !== null;
-  if (!isExempt) {
-    // Step 1: Ensure profile is complete (full_name is required)
+  // Administrators land on /admin and only access admin & settings routes.
+  if (!isDemoUser && adminRole !== null) {
+    if (pathname !== '/admin' && pathname !== '/settings') {
+      return <Navigate to="/admin" replace />;
+    }
+  } else if (!isDemoUser) {
+    // Step 1: Ensure patient profile is complete (full_name is required)
     if (!profile?.full_name || !profile.full_name.trim()) {
       return <Navigate to="/profile" replace />;
     }
 
-    // Step 2: Ensure user has an active 24-hr trial or paid subscription
+    // Step 2: Ensure patient has an active 24-hr trial or paid subscription
     if (!hasAccess) {
       return <Navigate to="/plans" replace />;
     }
