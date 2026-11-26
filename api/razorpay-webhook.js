@@ -1,67 +1,45 @@
-import crypto from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
+import { PaymentError, activateFromPayment, paymentConfig, signatureMatches } from './_lib/razorpay.js';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const reply = (status, body) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
+/**
+ * Razorpay webhook. Uses the Web Request signature so the signature is checked over the
+ * exact bytes Razorpay sent. Nothing is processed unless that signature is valid.
+ * A non-2xx answer makes Razorpay retry later.
+ */
+async function handleWebhook(request) {
+  if (request.method !== 'POST') return reply(405, { error: 'Method not allowed' });
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    const signature = req.headers['x-razorpay-signature'];
-
-    // If webhook secret is configured, verify HMAC signature
-    if (webhookSecret && signature) {
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      const expectedSignature = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(rawBody)
-        .digest('hex');
-
-      if (expectedSignature !== signature) {
-        console.warn('Razorpay webhook signature verification failed');
-        return res.status(400).json({ error: 'Invalid webhook signature' });
-      }
+    const config = paymentConfig();
+    if (!webhookSecret || !config) {
+      console.error('Razorpay webhook is not configured (RAZORPAY_WEBHOOK_SECRET and payment keys are required).');
+      return reply(500, { error: 'Webhook not configured' });
     }
 
-    const event = req.body?.event;
-    const payload = req.body?.payload;
-
-    if (event === 'payment.captured' || event === 'order.paid') {
-      const payment = payload?.payment?.entity;
-      const order = payload?.order?.entity;
-      const subscriptionId = payment?.notes?.subscription_id || order?.notes?.subscription_id;
-      const paymentId = payment?.id;
-      const amount = payment?.amount;
-
-      if (subscriptionId && paymentId && amount) {
-        const supabaseUrl = process.env.VITE_SUPABASE_URL;
-        const supabaseSecretKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (supabaseUrl && supabaseSecretKey) {
-          const adminClient = createClient(supabaseUrl, supabaseSecretKey, {
-            auth: { persistSession: false },
-          });
-
-          const { data, error } = await adminClient.rpc('activate_subscription', {
-            p_subscription_id: subscriptionId,
-            p_provider_reference: paymentId,
-            p_amount_paid: Number(amount) / 100,
-            p_currency: 'INR',
-          });
-
-          if (error) {
-            console.error('Webhook activate_subscription error:', error);
-          } else {
-            console.log(`Webhook successfully activated subscription ${subscriptionId}`);
-          }
-        }
-      }
+    const rawBody = Buffer.from(await request.arrayBuffer());
+    if (!signatureMatches(rawBody, request.headers.get('x-razorpay-signature'), webhookSecret)) {
+      console.warn('Razorpay webhook signature verification failed');
+      return reply(400, { error: 'Invalid webhook signature' });
     }
 
-    return res.status(200).json({ status: 'ok' });
+    const body = JSON.parse(rawBody.toString('utf8'));
+    if (body.event !== 'payment.captured' && body.event !== 'order.paid') {
+      return reply(200, { status: 'ignored' });
+    }
+
+    const payment = body.payload?.payment?.entity;
+    await activateFromPayment(config, { paymentId: payment?.id, orderId: payment?.order_id });
+    return reply(200, { status: 'ok' });
   } catch (err) {
+    if (err instanceof PaymentError) {
+      console.error('Razorpay webhook not applied:', err.code);
+      return err.retry ? reply(500, { error: 'Temporary failure' }) : reply(200, { status: 'not_applied' });
+    }
     console.error('Razorpay webhook error:', err);
-    return res.status(500).json({ error: err.message || 'Webhook handler error' });
+    return reply(500, { error: 'Webhook handler error' });
   }
 }
+
+export default { fetch: handleWebhook };

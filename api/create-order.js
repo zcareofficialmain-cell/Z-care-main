@@ -1,19 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -57,7 +44,8 @@ export default async function handler(req, res) {
 
     if (subError || !subData) {
       console.error('request_subscription error:', subError);
-      return res.status(400).json({ error: subError?.message || 'Failed to request subscription' });
+      const known = /already_subscribed/.test(subError?.message || '') ? 'You already have an active membership.' : null;
+      return res.status(400).json({ error: known || 'Could not start the subscription. Please try again.' });
     }
 
     const subscription = subData;
@@ -89,7 +77,7 @@ export default async function handler(req, res) {
     if (!rzpRes.ok) {
       const errText = await rzpRes.text();
       console.error('Razorpay orders API error:', errText);
-      return res.status(502).json({ error: 'Failed to create order with Razorpay', details: errText });
+      return res.status(502).json({ error: 'Failed to create order with Razorpay' });
     }
 
     const order = await rzpRes.json();
@@ -103,6 +91,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('create-order error:', err);
-    return res.status(500).json({ error: err.message || 'Internal server error' });
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 }

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types scripts/runTests.ts && node --experimental-strip-types scripts/runAiTests.ts && node --experimental-strip-types scripts/runPlanTests.ts"
+    "test": "node --experimental-strip-types scripts/runTests.ts && node --experimental-strip-types scripts/runAiTests.ts && node --experimental-strip-types scripts/runPlanTests.ts && node scripts/runPaymentTests.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

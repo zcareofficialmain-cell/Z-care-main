@@ -1,20 +1,8 @@
-import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { PaymentError, activateFromPayment, isOrderId, isPaymentId, paymentConfig, signatureMatches } from './_lib/razorpay.js';
 
+// Called by the ZCare web app (same origin) after Razorpay Checkout succeeds.
 export default async function handler(req, res) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -22,95 +10,55 @@ export default async function handler(req, res) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      return res.status(401).json({ error: 'Please sign in again.' });
     }
-    const token = authHeader.split(' ')[1];
+    const token = authHeader.slice('Bearer '.length);
 
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    const supabaseSecretKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const razorpayKeyId = process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID;
-    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
-
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseSecretKey || !razorpayKeyId || !razorpayKeySecret) {
-      return res.status(500).json({ error: 'Server payment configuration missing' });
+    const config = paymentConfig();
+    if (!config) {
+      return res.status(500).json({ error: 'Payments are not available right now.' });
     }
 
     // Verify user JWT
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    const userClient = createClient(config.supabaseUrl, config.anonKey, {
       auth: { persistSession: false },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const { data: { user }, error: userError } = await userClient.auth.getUser();
+    const { data: { user }, error: userError } = await userClient.auth.getUser(token);
     if (userError || !user) {
-      return res.status(401).json({ error: 'Invalid or expired user session' });
+      return res.status(401).json({ error: 'Please sign in again.' });
     }
 
     const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      subscription_id,
+      razorpay_order_id: orderId,
+      razorpay_payment_id: paymentId,
+      razorpay_signature: signature,
+      subscription_id: subscriptionId,
     } = req.body || {};
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !subscription_id) {
-      return res.status(400).json({ error: 'Missing required payment verification parameters' });
+    if (!isOrderId(orderId) || !isPaymentId(paymentId) || typeof signature !== 'string' || typeof subscriptionId !== 'string') {
+      return res.status(400).json({ error: 'Invalid payment details.' });
     }
 
-    // 1. Cryptographically verify signature: HMAC-SHA256(order_id + '|' + payment_id, secret)
-    const expectedSignature = crypto
-      .createHmac('sha256', razorpayKeySecret)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest('hex');
-
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ error: 'Payment signature verification failed' });
+    if (!signatureMatches(`${orderId}|${paymentId}`, signature, config.keySecret)) {
+      return res.status(400).json({ error: 'Payment verification failed.' });
     }
 
-    // 2. Fetch payment details from Razorpay to confirm status and amount
-    const authString = Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString('base64');
-    const rzpRes = await fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}`, {
-      headers: { Authorization: `Basic ${authString}` },
+    const subscription = await activateFromPayment(config, {
+      paymentId,
+      orderId,
+      expected: { userId: user.id, subscriptionId },
     });
 
-    if (!rzpRes.ok) {
-      return res.status(502).json({ error: 'Failed to verify payment status with Razorpay' });
-    }
-
-    const payment = await rzpRes.json();
-    if (payment.status !== 'captured' && payment.status !== 'authorized') {
-      return res.status(400).json({ error: `Payment is not captured. Current status: ${payment.status}` });
-    }
-
-    if (payment.currency !== 'INR') {
-      return res.status(400).json({ error: `Currency mismatch: expected INR, received ${payment.currency}` });
-    }
-
-    const amountPaidInInr = Number(payment.amount) / 100;
-
-    // 3. Call activate_subscription() RPC using Supabase Secret Client
-    const adminClient = createClient(supabaseUrl, supabaseSecretKey, {
-      auth: { persistSession: false },
-    });
-
-    const { data: activatedSub, error: activateError } = await adminClient.rpc('activate_subscription', {
-      p_subscription_id: subscription_id,
-      p_provider_reference: razorpay_payment_id,
-      p_amount_paid: amountPaidInInr,
-      p_currency: 'INR',
-    });
-
-    if (activateError) {
-      console.error('activate_subscription error:', activateError);
-      return res.status(400).json({ error: activateError.message || 'Failed to activate subscription' });
-    }
-
-    return res.status(200).json({
-      success: true,
-      subscription: activatedSub,
-    });
+    return res.status(200).json({ success: true, subscription });
   } catch (err) {
+    if (err instanceof PaymentError) {
+      console.error('verify-payment rejected:', err.code);
+      return res.status(err.retry ? 502 : 400).json({
+        error: 'We could not activate your plan automatically. If money was deducted, please contact support with your payment ID.',
+      });
+    }
     console.error('verify-payment error:', err);
-    return res.status(500).json({ error: err.message || 'Internal server error' });
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 }
