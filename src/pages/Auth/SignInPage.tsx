@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Mail, Lock, ArrowRight, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import Logo from '@/components/ui/Logo';
 import { useAuth } from '@/contexts/AuthContext';
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
@@ -11,7 +11,7 @@ export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signInAsDemo, configured } = useAuth();
+  const { signIn, configured } = useAuth();
   const navigate = useNavigate();
   const notice = (useLocation().state as { message?: string } | null)?.message;
 
@@ -30,11 +30,6 @@ export default function SignInPage() {
     }
   };
 
-  const handleDemoLogin = () => {
-    signInAsDemo();
-    navigate('/dashboard');
-  };
-
   return (
     <div className="card p-8 max-w-md w-full shadow-lg border border-[var(--color-border)]">
       <div className="flex justify-center mb-6">
@@ -44,32 +39,6 @@ export default function SignInPage() {
       <p className="text-sm text-center mb-6" style={{ color: 'var(--color-text-muted)' }}>
         Sign in to access your secure health records
       </p>
-
-      {/* Demo Account Quick Access Card */}
-      <div
-        className="mb-5 p-4 rounded-xl border flex flex-col gap-2.5"
-        style={{
-          backgroundColor: 'var(--color-mint-lighter)',
-          borderColor: 'var(--color-border)',
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <Sparkles size={16} style={{ color: 'var(--color-emerald-primary)' }} />
-          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-teal-deep)' }}>
-            Instant Evaluation & Demo Mode
-          </span>
-        </div>
-        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          Explore all 8 customer-specified screens with preloaded reference data (Aarav Sharma).
-        </p>
-        <button
-          type="button"
-          onClick={handleDemoLogin}
-          className="btn btn-primary btn-sm w-full font-medium"
-        >
-          Sign In as Demo User (1-Click)
-        </button>
-      </div>
 
       {!configured && (
         <div className="mb-4 p-3 rounded-lg text-xs" style={{ backgroundColor: 'var(--color-info-light)', color: 'var(--color-info)' }}>
