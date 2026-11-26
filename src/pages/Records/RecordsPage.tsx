@@ -3,6 +3,7 @@
 // ============================================================
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useStartAction } from '@/hooks/useStartAction';
 import {
   FileText,
   Upload,
@@ -136,6 +137,12 @@ export default function RecordsPage() {
   useEffect(() => {
     loadData();
   }, [user]);
+
+  // Welcome modal "Upload Medical Reports" → the existing upload & OCR modal (same as the Upload button).
+  useStartAction('upload', uploadModalOpen, () => {
+    setWorkflowState('form');
+    setUploadModalOpen(true);
+  });
 
   const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
   const MAX_FILE_SIZE_MB = 15;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useStartAction } from '@/hooks/useStartAction';
 import {
   Pill,
   AlertTriangle,
@@ -170,6 +171,9 @@ export default function MedicationsPage() {
     }
     setMedModalOpen(true);
   };
+
+  // Welcome modal "Add Health Details" → the existing Add Medication modal.
+  useStartAction('medication', medModalOpen, () => openMedModal());
 
   // Handle Allergy Submission
   const handleAlgSubmit = async (e: React.FormEvent) => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useStartAction } from '@/hooks/useStartAction';
 import {
   Stethoscope,
   FileText,
@@ -152,6 +153,9 @@ export default function ConsultationsPage() {
     }
     setConModalOpen(true);
   };
+
+  // Welcome modal "Add Doctor History" → the existing Log Doctor Consultation modal.
+  useStartAction('new', conModalOpen, () => openConModal());
 
   const handleDeleteCon = async () => {
     if (!user) return;

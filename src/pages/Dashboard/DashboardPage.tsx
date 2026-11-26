@@ -37,9 +37,11 @@ import type {
 } from '@/types';
 import type { LabResult } from '@/types/medicalExtraction';
 import { formatDate } from '@/utils';
+import WelcomeModal, { type WelcomeChoice } from '@/components/onboarding/WelcomeModal';
+import { shouldShowWelcome, saveWelcomeState, retryPendingWelcomeState } from '@/services/welcome';
 
 export default function DashboardPage() {
-  const { user, profile, isDemoUser } = useAuth();
+  const { user, profile, isDemoUser, adminRole, accessLoading } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -52,10 +54,14 @@ export default function DashboardPage() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [labResults, setLabResults] = useState<LabResult[]>([]);
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+  // First-time welcome: only after a successful load (a failed load must not look like "no records").
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
 
   const loadData = async () => {
     if (!user) return;
     setLoading(true);
+    setDataLoaded(false);
     try {
       const [m, a, p, c, d, r, l] = await Promise.all([
         getMedications(user.id),
@@ -73,6 +79,7 @@ export default function DashboardPage() {
       setDocuments(d);
       setReminders(r);
       setLabResults(l);
+      setDataLoaded(true);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -112,6 +119,32 @@ export default function DashboardPage() {
     consultations.length > 0 ||
     documents.length > 0 ||
     reminders.length > 0;
+
+  // Show the welcome modal once, to new regular patients with no health records yet.
+  useEffect(() => {
+    if (!user || loading) return;
+    retryPendingWelcomeState(user);
+    const show = shouldShowWelcome({
+      user,
+      isDemoUser,
+      adminRole,
+      accessLoading,
+      dataLoaded,
+      hasHealthData: hasAnyData || labResults.length > 0,
+    });
+    if (show) setWelcomeOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loading, dataLoaded, isDemoUser, adminRole, accessLoading]);
+
+  const handleWelcomeChoice = (choice: WelcomeChoice) => {
+    setWelcomeOpen(false);
+    if (!user) return;
+    // Save in the background: the browser key is written immediately, Supabase follows.
+    void saveWelcomeState(user, choice === 'explore' ? 'dismissed' : 'started');
+    if (choice === 'upload') navigate('/records?start=upload');
+    else if (choice === 'details') navigate('/medications?start=medication');
+    else if (choice === 'doctor') navigate('/consultations?start=new');
+  };
 
   const activeMeds = medications.filter(m => m.status === 'active');
   const primaryPolicy = policies[0];
@@ -214,17 +247,23 @@ export default function DashboardPage() {
             <FileText size={36} style={{ color: 'var(--color-emerald-primary)' }} />
           </div>
           <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-            No health details added yet.
+            Your health journey starts here.
           </h2>
           <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-            Add your first health record to start building your health history. You can track medications, doctor consultations, insurance policies, and reminders all in one place.
+            Add your first medical report or health details to start building your personal health history.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <button
-              onClick={() => navigate('/medications')}
+              onClick={() => setWelcomeOpen(true)}
               className="btn btn-primary"
             >
-              <Plus size={16} /> Add Details
+              <Plus size={16} /> Add Your First Health Record
+            </button>
+            <button
+              onClick={() => navigate('/medications')}
+              className="btn btn-outline"
+            >
+              Add Details
             </button>
           </div>
         </div>
@@ -574,6 +613,8 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <WelcomeModal isOpen={welcomeOpen} onChoose={handleWelcomeChoice} />
     </div>
   );
 }
